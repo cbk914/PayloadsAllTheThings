@@ -227,7 +227,7 @@ ssh-dss AAAA487rt384ufrgh432087fhy02nv84u7fg839247fg8743gf087b3849yb98304yb9v834
 
 ```
 echo "PubkeyAcceptedKeyTypes=+ssh-dss" >> /etc/ssh/ssh_config
-echo "PubkeyAcceptedKeyTypes=+ssh-dss" >> /etc/ssh/sshs_config
+echo "PubkeyAcceptedKeyTypes=+ssh-dss" >> /etc/ssh/sshd_config
 /etc/init.d/ssh restart
 ```
 
@@ -536,8 +536,7 @@ DEVICE=eth0
 EXEC :
 ./etc/sysconfig/network-scripts/ifcfg-1337
 ```
-src : [https://vulmon.com/exploitdetailsqidtp=maillist_fulldisclosure&qid=e026a0c5f83df4fd532442e1324ffa4f]
-(https://vulmon.com/exploitdetails?qidtp=maillist_fulldisclosure&qid=e026a0c5f83df4fd532442e1324ffa4f)
+src : [https://vulmon.com/exploitdetailsqidtp=maillist_fulldisclosure&qid=e026a0c5f83df4fd532442e1324ffa4f](https://vulmon.com/exploitdetails?qidtp=maillist_fulldisclosure&qid=e026a0c5f83df4fd532442e1324ffa4f)
 
 ### Writable /etc/passwd
 

