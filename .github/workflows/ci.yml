@@ -21,6 +21,7 @@ jobs:
           git config --global user.name "Swk"
           git config --global pull.rebase false
           git submodule add https://github.com/swisskyrepo/PayloadsAllTheThings/ docs
+          mv docs/.github/overrides .
 
       - uses: actions/setup-python@v2
         with:
@@ -28,5 +29,6 @@ jobs:
       - run: pip install mkdocs-material
       - run: pip install mkdocs-git-revision-date-localized-plugin
       - run: pip install mkdocs-git-committers-plugin
+      - run: pip install mkdocs-material[imaging]
       - run: mkdocs gh-deploy --force
 

